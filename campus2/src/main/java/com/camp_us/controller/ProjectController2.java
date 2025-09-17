@@ -268,28 +268,33 @@ public class ProjectController2 {
             @RequestBody ModifyProjectRequest request
     ) throws SQLException {
 
-        ProjectListVO project = request.getProject();
-        TeamVO team = request.getTeam();
-        List<String> team_member_ids = request.getTeam_member_ids();
         String beforeId = request.getBefore_id();
 
-        // TeamMemberVO 리스트로 변환
-        List<TeamMemberVO> teamMember = team_member_ids.stream()
-            .map(tmId -> {
-                TeamMemberVO tm = new TeamMemberVO();
-                tm.setTeam_member(tmId);
-                return tm;
-            })
-            .collect(Collectors.toList());
+        // 승인/거부 분기
+        if (request.getProject() != null && request.getTeam() != null) {
+            // 승인 로직
+            ProjectListVO project = request.getProject();
+            TeamVO team = request.getTeam();
+            List<String> team_member_ids = request.getTeam_member_ids();
 
-        // 서비스 호출
-        projectService.updateProjectTeamAndMembers(project, team, teamMember);
+            List<TeamMemberVO> teamMember = team_member_ids.stream()
+                .map(tmId -> {
+                    TeamMemberVO tm = new TeamMemberVO();
+                    tm.setTeam_member(tmId);
+                    return tm;
+                })
+                .collect(Collectors.toList());
+
+            projectService.updateProjectTeamAndMembers(project, team, teamMember);
+        }
+
+        // 승인/거부 둘 다 요청 삭제
         projectService.deleteEditBefore(beforeId);
 
         // JSON 응답
         Map<String, Object> response = new HashMap<>();
         response.put("status", "success");
-        response.put("message", "프로젝트 수정 완료");
+        response.put("message", (request.getProject() != null ? "프로젝트 수정 승인 완료" : "프로젝트 수정 거부 완료"));
 
         return ResponseEntity.ok(response);
     }
@@ -324,13 +329,20 @@ public class ProjectController2 {
     }
     
     @GetMapping("/remove")
-	public String remove(@RequestParam("team_id") String team_id)throws Exception{
-		String url="/project/remove_success";		
-		
-		projectService.deleteTeamByTeamId(team_id);
-	
-		return url;
-	}
+    @ResponseBody
+    public Map<String, Object> remove(@RequestParam("team_id") String team_id) throws Exception {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            projectService.deleteTeamByTeamId(team_id);
+            result.put("status", "success");
+            result.put("message", "팀 삭제 완료");
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.put("status", "fail");
+            result.put("message", "팀 삭제 실패");
+        }
+        return result;
+    }
     @GetMapping("/main/stu")
     public String main() {
     	String url="/project/main";
