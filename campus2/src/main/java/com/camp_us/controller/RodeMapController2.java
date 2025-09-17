@@ -17,8 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.util.UriUtils;
@@ -46,8 +47,8 @@ import com.camp_us.service.ProjectService;
 import com.camp_us.service.RoadMapService;
 import com.josephoconnell.html.HTMLInputFilter;
 
-@Controller
-@RequestMapping("/roadmap")
+@RestController
+@RequestMapping("/api/roadmap")
 public class RodeMapController2 {
 	
 	@Autowired
@@ -69,122 +70,130 @@ public class RodeMapController2 {
 //    }
 //	
 	@GetMapping("/projectlist/stu")
-	public String list(HttpSession session, Model model,@RequestParam(value = "samester", required = false) String samester,@RequestParam(value = "project_name", required = false) String project_name,@RequestParam(value = "eval_status", required = false) String eval_status,
-    		@ModelAttribute PageMakerPro pageMaker, PageMakerRM pageMakerRm) throws Exception {
-    	String url="/roadmap/projectlist";
-        MemberVO member = (MemberVO) session.getAttribute("loginUser");
-        if (member == null) {
-            throw new IllegalStateException("로그인 정보가 없습니다.");
-        }
-        model.addAttribute("member",member);
-        String mem_id = member.getMem_id();
+    public ResponseEntity<Map<String, Object>> getProjectList(
+            @RequestParam String memId,
+            @RequestParam(value = "samester", required = false) String samester,
+            @RequestParam(value = "project_name", required = false) String project_name,
+            @RequestParam(value = "eval_status", required = false) String eval_status,
+            @ModelAttribute PageMakerPro pageMaker,
+            PageMakerRM pageMakerRm) throws Exception {
+
+        Map<String, Object> result = new HashMap<>();
+
+        // 멤버 정보
+        MemberVO member = memberService.getMemberById(memId);
+        result.put("member", member);
+
+        // 페이징 및 필터
         pageMaker.setKeyword(samester);
         pageMaker.setProject_name(project_name);
-        List<ProjectListVO> projectList = roadMapService.projectlist(pageMaker, mem_id);
-        
-        
+
+        // 프로젝트 리스트
+        List<ProjectListVO> projectList = roadMapService.projectlist(pageMaker, memId);
+        result.put("projectList", projectList);
+
+        // 프로젝트별 팀원
         Map<String, List<String>> projectTeamMembersMap = new HashMap<>();
         for (ProjectListVO project : projectList) {
             String project_id = project.getProject_id();
             List<String> members = projectService.selectTeamMembers(project_id);
             projectTeamMembersMap.put(project_id, members);
         }
-        Map<String, List<String>> projectEditStatusMap = new HashMap<>();
+        result.put("projectTeamMembersMap", projectTeamMembersMap);
 
+        // 프로젝트별 수정 상태
+        Map<String, List<String>> projectEditStatusMap = new HashMap<>();
         for (ProjectListVO project : projectList) {
             String project_id = project.getProject_id();
-            if (project_id != null) {
-                List<String> editStatusList = projectService.selectEditStatusByProjectid(project_id);
-                if (editStatusList != null && !editStatusList.isEmpty()) {
-                    projectEditStatusMap.put(project_id, editStatusList);
-                } else {
-                    projectEditStatusMap.put(project_id, List.of("수정 가능"));
-                }
+            List<String> editStatusList = projectService.selectEditStatusByProjectid(project_id);
+            if (editStatusList != null && !editStatusList.isEmpty()) {
+                projectEditStatusMap.put(project_id, editStatusList);
             } else {
-                projectEditStatusMap.put("unknown", List.of("수정 가능"));
+                projectEditStatusMap.put(project_id, List.of("수정 가능"));
             }
         }
+        result.put("projectEditStatusMap", projectEditStatusMap);
+
+        // 프로젝트별 평가 상태
         Map<String, List<String>> projectEvalMap = new HashMap<>();
         for(ProjectListVO project : projectList) {
             String project_id = project.getProject_id();
             List<RoadMapVO> roadMaps = roadMapService.roadmaplist(pageMakerRm, project_id);
 
-            // eval_status만 뽑아서 리스트로 넣기
             List<String> evalStatusList = roadMaps.stream()
-                .map(rm -> rm.getEval_status()) // eval_status 필드
-                .collect(Collectors.toList());
+                    .map(RoadMapVO::getEval_status)
+                    .collect(Collectors.toList());
 
             projectEvalMap.put(project_id, evalStatusList);
         }
-        model.addAttribute("eval_status",eval_status);
-        model.addAttribute("pageMaker", pageMaker);
-        model.addAttribute("projectEvalMap", projectEvalMap);
-        model.addAttribute("projectEditStatusMap", projectEditStatusMap);
-        model.addAttribute("selectedSamester", samester); 
-        model.addAttribute("projectList", projectList);
-        model.addAttribute("projectTeamMembersMap", projectTeamMembersMap);
-        model.addAttribute("project_stdate",pageMaker.getProject_stdate());
-        model.addAttribute("project_endate",pageMaker.getProject_endate());
-        model.addAttribute("project_name",pageMaker.getProject_name());
-        return url;
+        result.put("projectEvalMap", projectEvalMap);
+
+        // 요청 파라미터도 반환 (선택)
+        result.put("eval_status", eval_status);
+        result.put("selectedSamester", samester);
+        result.put("project_stdate", pageMaker.getProject_stdate());
+        result.put("project_endate", pageMaker.getProject_endate());
+        result.put("project_name", pageMaker.getProject_name());
+
+        return ResponseEntity.ok(result);
     }
-	 @GetMapping("/projectlist/pro")
-	    public String listPro(HttpSession session, Model model,@RequestParam(value = "samester", required = false) String samester,@RequestParam(value = "project_name", required = false) String project_name,@RequestParam(value = "eval_status", required = false) String eval_status,
-	    		@RequestParam(value = "modifyRequest", required = false, defaultValue = "false") boolean modifyRequest,@ModelAttribute PageMakerPro pageMaker, PageMakerRM pageMakerRm) throws Exception {
-	    	String url = "/roadmap/projectlist";
-	    	
-	        MemberVO member = (MemberVO) session.getAttribute("loginUser");
-	        if (member == null) {
-	            throw new IllegalStateException("로그인 정보가 없습니다.");
-	        }
-	        model.addAttribute("member",member);
-	        pageMaker.setKeyword(samester);
-	        pageMaker.setProject_name(project_name);
-	        String mem_id = member.getMem_id();
-	        List<ProjectListVO> projectListpro;
-	        if (modifyRequest) {
-	            projectListpro = projectService.selectModifyRequestProjectList(pageMaker, mem_id);
-	        } else {
-	            projectListpro = projectService.searchProjectListpro(pageMaker, mem_id);
-	            // searchProjectListpro도 서비스에서 totalCount 세팅하는 구조여야 함
-	        }
+	@GetMapping("/projectlist/pro")
+    public ResponseEntity<Map<String, Object>> listPro(
+            @RequestParam String memId,
+            @RequestParam(value = "samester", required = false) String samester,
+            @RequestParam(value = "project_name", required = false) String project_name,
+            @RequestParam(value = "eval_status", required = false) String eval_status,
+            @RequestParam(value = "modifyRequest", required = false, defaultValue = "false") boolean modifyRequest,
+            @ModelAttribute PageMakerPro pageMaker,
+            PageMakerRM pageMakerRm) throws Exception {
 
-	        
-	        Map<String, List<String>> projectTeamMembersMap = new HashMap<>();
-	        Map<String, List<String>> projectProfessorMap = new HashMap<>();
+		 MemberVO member = memberService.getMemberById(memId);
 
-	        for (ProjectListVO project : projectListpro) {
-	            String project_id = project.getProject_id();
-	            List<String> professor = projectService.selectTeamProfessor(project_id);
-	            projectProfessorMap.put(project_id, professor);
-	        }
-	        Map<String, List<String>> projectEvalMap = new HashMap<>();
-	        for(ProjectListVO project : projectListpro) {
-	            String project_id = project.getProject_id();
-	            List<RoadMapVO> roadMaps = roadMapService.roadmaplist(pageMakerRm, project_id);
+        pageMaker.setKeyword(samester);
+        pageMaker.setProject_name(project_name);
 
-	            // eval_status만 뽑아서 리스트로 넣기
-	            List<String> evalStatusList = roadMaps.stream()
-	                .map(rm -> rm.getEval_status()) // eval_status 필드
-	                .collect(Collectors.toList());
+        List<ProjectListVO> projectListpro;
+        if (modifyRequest) {
+            projectListpro = projectService.selectModifyRequestProjectList(pageMaker, memId);
+        } else {
+            projectListpro = projectService.searchProjectListpro(pageMaker, memId);
+        }
 
-	            projectEvalMap.put(project_id, evalStatusList);
-	        }
-	        model.addAttribute("eval_status",eval_status);
-	        model.addAttribute("pageMaker", pageMaker);
-	        model.addAttribute("projectList", projectListpro);
-	        model.addAttribute("projectTeamMembersMap", projectTeamMembersMap);
-	        model.addAttribute("selectedSamester", samester); 
-	        model.addAttribute("projectEvalMap", projectEvalMap);
-	        model.addAttribute("projectProfessorMap",projectProfessorMap);
-	        System.out.println("project_stdate: " + pageMaker.getProject_stdate());
-	        System.out.println("project_endate: " + pageMaker.getProject_endate());
-	        System.out.println("pageMaker.project_name = " + pageMaker.getProject_name());
-	        model.addAttribute("project_stdate",pageMaker.getProject_stdate());
-	        model.addAttribute("project_endate",pageMaker.getProject_endate());
-	        model.addAttribute("project_name",pageMaker.getProject_name());
-	        return url;
-	    }
+        Map<String, List<String>> projectTeamMembersMap = new HashMap<>();
+        Map<String, List<String>> projectProfessorMap = new HashMap<>();
+        Map<String, List<String>> projectEvalMap = new HashMap<>();
+
+        for (ProjectListVO project : projectListpro) {
+            String project_id = project.getProject_id();
+
+            // 교수 정보
+            List<String> professor = projectService.selectTeamProfessor(project_id);
+            projectProfessorMap.put(project_id, professor);
+
+            // 평가 상태
+            List<RoadMapVO> roadMaps = roadMapService.roadmaplist(pageMakerRm, project_id);
+            List<String> evalStatusList = roadMaps.stream()
+                    .map(RoadMapVO::getEval_status)
+                    .collect(Collectors.toList());
+            projectEvalMap.put(project_id, evalStatusList);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("member", member);
+        response.put("projectList", projectListpro);
+        response.put("projectTeamMembersMap", projectTeamMembersMap);
+        response.put("projectProfessorMap", projectProfessorMap);
+        response.put("projectEvalMap", projectEvalMap);
+        response.put("selectedSamester", samester);
+        response.put("eval_status", eval_status);
+        response.put("project_stdate", pageMaker.getProject_stdate());
+        response.put("project_endate", pageMaker.getProject_endate());
+        response.put("project_name", pageMaker.getProject_name());
+        response.put("pageMaker", pageMaker);
+
+        return ResponseEntity.ok(response);
+    }
+
 	@GetMapping("/list/stu")
 	public String roadMapList(HttpSession session,@RequestParam(value = "rm_category", required = false) String rm_category,
 	                          @ModelAttribute PageMakerRM pageMaker,
