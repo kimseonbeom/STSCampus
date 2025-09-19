@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import javax.servlet.ServletContext;
 import javax.servlet.http.HttpSession;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,11 +17,13 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
@@ -75,6 +76,7 @@ public class RodeMapController2 {
             @RequestParam(value = "samester", required = false) String samester,
             @RequestParam(value = "project_name", required = false) String project_name,
             @RequestParam(value = "eval_status", required = false) String eval_status,
+            @RequestParam(required = false, defaultValue = "7") int perPageNum,
             @ModelAttribute PageMakerPro pageMaker,
             PageMakerRM pageMakerRm) throws Exception {
 
@@ -134,7 +136,7 @@ public class RodeMapController2 {
         result.put("project_stdate", pageMaker.getProject_stdate());
         result.put("project_endate", pageMaker.getProject_endate());
         result.put("project_name", pageMaker.getProject_name());
-
+        result.put("pageMaker", pageMaker);
         return ResponseEntity.ok(result);
     }
 	@GetMapping("/projectlist/pro")
@@ -194,26 +196,30 @@ public class RodeMapController2 {
         return ResponseEntity.ok(response);
     }
 
-	@GetMapping("/list/stu")
-	public String roadMapList(HttpSession session,@RequestParam(value = "rm_category", required = false) String rm_category,
-	                          @ModelAttribute PageMakerRM pageMaker,
-	                          Model model,
-	                          String project_id) throws Exception {
-	    String url = "/roadmap/stulist";
-	    
-	    List<RoadMapVO> roadMapList = roadMapService.roadmaplist(pageMaker, project_id);
-	    List<ProjectListVO> projectList = projectService.selectProjectByProjectId(project_id);
-	    
-        model.addAttribute("rm_category", rm_category);
-        model.addAttribute("rm_stdate",pageMaker.getRm_stdate());
-        model.addAttribute("rm_endate",pageMaker.getRm_endate());
-        model.addAttribute("rm_name",pageMaker.getRm_name());
-	    model.addAttribute("pageMaker", pageMaker);
-	    model.addAttribute("roadMapList", roadMapList);
-	    model.addAttribute("project", projectList);
+	 @GetMapping("/list/stu")
+	    public Map<String, Object> getRoadMapList(
+	    		@RequestParam(value = "project_id") String projectId,
+	            @RequestParam(value = "memId") String memId,
+	            @RequestParam(value = "rm_category", required = false) String rmCategory,
+	            @RequestParam(value = "rm_name", required = false) String rmName,
+	            @RequestParam(value = "rm_stdate", required = false) String rmStdate,
+	            @RequestParam(value = "rm_endate", required = false) String rmEndate,
+	            PageMakerRM pageMaker) throws Exception {
 
-	    return url;
-	}
+	        List<RoadMapVO> roadMapList = roadMapService.roadmaplist(pageMaker, projectId);
+	        List<ProjectListVO> projectList = projectService.selectProjectByProjectId(projectId);
+
+	        Map<String, Object> result = new HashMap<>();
+	        result.put("rm_category", rmCategory);
+	        result.put("rm_stdate", pageMaker.getRm_stdate());
+	        result.put("rm_endate", pageMaker.getRm_endate());
+	        result.put("rm_name", pageMaker.getRm_name());
+	        result.put("pageMaker", pageMaker);
+	        result.put("roadMapList", roadMapList);
+	        result.put("project", projectList);
+
+	        return result;
+	    }
 	
 	@GetMapping("/regist")
 	public String registForm(HttpSession session, @RequestParam("project_id") String project_id,Model model)throws SQLException {
@@ -260,50 +266,50 @@ public class RodeMapController2 {
 				return mnv;
 	}
 	@GetMapping("/detail")
-	public ModelAndView detail(
-	        String rm_id,PageMakerRM pageMakers,PageMakerPro pageMaker,
-	        HttpSession session,
-	        ModelAndView mnv) throws Exception {
+    public ResponseEntity<?> getRoadMapDetail(
+            @RequestParam String rm_id,
+            @RequestParam String memId,
+            PageMakerRM pageMakers,
+            PageMakerPro pageMaker,
+            HttpSession session) throws Exception {
 
-	    String url = "/roadmap/detail";
-	    ServletContext ctx = session.getServletContext();
-	    MemberVO member = (MemberVO) session.getAttribute("loginUser");
-	    if (member == null) {
-	        throw new IllegalStateException("로그인 정보가 없습니다.");
-	    }
-	    String mem_id = member.getMem_id();
+        MemberVO member = memberService.getMemberById(memId);
 
-	    String key = "roadMap:" + member.getMem_id() + rm_id;
-	    
-	    RoadMapVO roadMap = roadMapService.detail(rm_id);
-	    String project_id = roadMap.getProject_id();
-	    MemberVO members = memberService.getMember(roadMap.getWriter());
-	    String mem_name = members.getMem_name();
-	    List<ProjectListVO> projectList = projectService.selectProjectByProjectId(project_id);
-	    List<ProjectListVO> projectLists = roadMapService.projectlist(pageMaker, mem_id);
-	    RoadMapVO rdm = roadMapService.detail(rm_id);
-	    List<EvaluationVO> eval = evaluationService.list(rm_id, pageMakers);
+        RoadMapVO roadMap = roadMapService.detail(rm_id);
+        if (roadMap == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "로드맵을 찾을 수 없습니다."));
+        }
 
-	    // 각 평가의 profes_id → 교수 이름 매핑
-	    Map<String, String> evalProfessorNames = new HashMap<>();
-	    for(EvaluationVO e : eval) {
-	        if (!evalProfessorNames.containsKey(e.getProfes_id())) {
-	            MemberVO prof = memberService.getMember(e.getProfes_id());
-	            evalProfessorNames.put(e.getProfes_id(), prof.getMem_name());
-	        }
-	    }
+        String project_id = roadMap.getProject_id();
+        MemberVO writer = memberService.getMember(roadMap.getWriter());
+        String mem_name = writer != null ? writer.getMem_name() : "";
 
-	    ctx.setAttribute(key, key); // 캐싱 목적
-	    mnv.addObject("eval",eval);
-	    mnv.addObject("evalProfessorNames", evalProfessorNames);
-	    mnv.addObject("rdm", rdm);
-	    mnv.addObject("projectList", projectList);
-	    mnv.addObject("roadMap", roadMap);
-	    mnv.addObject("mem_name", mem_name);
+        List<ProjectListVO> projectList = projectService.selectProjectByProjectId(project_id);
+        List<ProjectListVO> projectLists = roadMapService.projectlist(pageMaker, memId);
 
-	    mnv.setViewName(url);
-	    return mnv;
-	}
+        List<EvaluationVO> evalList = evaluationService.list(rm_id, pageMakers);
+
+        // 교수 이름 매핑
+        Map<String, String> evalProfessorNames = new HashMap<>();
+        for(EvaluationVO e : evalList) {
+            if (!evalProfessorNames.containsKey(e.getProfes_id())) {
+                MemberVO prof = memberService.getMember(e.getProfes_id());
+                evalProfessorNames.put(e.getProfes_id(), prof != null ? prof.getMem_name() : "Unknown");
+            }
+        }
+
+        // JSON으로 반환
+        Map<String, Object> response = new HashMap<>();
+        response.put("roadMap", roadMap);
+        response.put("mem_name", mem_name);
+        response.put("projectList", projectList);
+        response.put("projectLists", projectLists);
+        response.put("eval", evalList);
+        response.put("evalProfessorNames", evalProfessorNames);
+
+        return ResponseEntity.ok(response);
+    }
 	@GetMapping("/remove")
 	public ModelAndView remove(String rm_id, ModelAndView mnv,@RequestParam("project_id") String project_id) throws Exception {
 		String url = "/roadmap/remove_success";
@@ -326,40 +332,48 @@ public class RodeMapController2 {
 		mnv.setViewName(url);
 		return mnv;
 	}
-	@GetMapping("/evaluation/regist")
-	public ModelAndView evalutionForm(String rm_id,ModelAndView mnv)throws Exception {
-		
-		String url="/roadmap/evalution";
-		RoadMapVO roadMap = roadMapService.detail(rm_id);
-		String project_id = roadMap.getProject_id();
-		List<ProjectListVO> projectList = projectService.selectProjectByProjectId(project_id);
-        List<MemberVO> studentList = projectService.selectTeamMemberList();
-        List<String>teammembers = projectService.selectTeamMembers(project_id);
-        String teammembersStr = String.join(", ", teammembers);
-        
-        mnv.addObject("rm_id", rm_id);
-        mnv.addObject("teammembers", teammembersStr);
-        mnv.addObject("studentList", studentList);
-        mnv.addObject("projectList", projectList);
-		mnv.setViewName(url);
-		return mnv;
+	@GetMapping(value = "/evaluation/form", produces = "application/json; charset=UTF-8")
+	@ResponseBody
+	public ResponseEntity<Map<String, Object>> getEvaluationForm(@RequestParam String rm_id) throws Exception {
+	    RoadMapVO roadMap = roadMapService.detail(rm_id);
+	    String project_id = roadMap.getProject_id();
+	    List<ProjectListVO> projectList = projectService.selectProjectByProjectId(project_id);
+	    List<MemberVO> studentList = projectService.selectTeamMemberList();
+	    List<String> teammembers = projectService.selectTeamMembers(project_id);
+
+	    Map<String, Object> result = new HashMap<>();
+	    result.put("rm_id", rm_id);
+	    result.put("teammembers", String.join(", ", teammembers));
+	    result.put("studentList", studentList);
+	    result.put("projectList", projectList);
+
+	    return ResponseEntity.ok(result);
 	}
-	@PostMapping(value = "/evaluation/regist", produces = "text/plain;charset=utf-8")
-	public ModelAndView evalution(EvaluationRegistCommand regCommand,String eval_id,String rm_id, HttpSession session,ModelAndView mnv)throws Exception {
-		String url="/roadmap/evaluation_success";
-		EvaluationVO evaluation = regCommand.toEvaluationVO(eval_id,rm_id);
-		evaluation.setEval_content(HTMLInputFilter.htmlSpecialChars(evaluation.getEval_content()));
-		
-		MemberVO loginUser = (MemberVO) session.getAttribute("loginUser");
-	    if(loginUser != null){
-	        evaluation.setProfes_id(loginUser.getMem_id());
+	@PostMapping(value = "/evaluation/regist", produces = "application/json; charset=UTF-8")
+	@ResponseBody
+	public ResponseEntity<Map<String, Object>> registerEvaluation(
+	        @RequestBody EvaluationRegistCommand regCommand,
+	        @RequestParam String memId,
+	        HttpSession session) throws Exception {
+
+	    EvaluationVO evaluation = regCommand.toEvaluationVO(null, regCommand.getRm_id());
+	    evaluation.setEval_content(HTMLInputFilter.htmlSpecialChars(evaluation.getEval_content()));
+
+	    MemberVO loginUser = memberService.getMemberById(memId);
+	    if (loginUser != null) {
+	        evaluation.setProfes_id(memId);
 	    }
 
 	    evaluationService.regist(evaluation);
-		roadMapService.updateEvalStatus(rm_id);
-		mnv.setViewName(url);
-		return mnv;
+	    roadMapService.updateEvalStatus(regCommand.getRm_id());
+
+	    Map<String, Object> result = new HashMap<>();
+	    result.put("success", true);
+	    result.put("message", "평가가 등록되었습니다.");
+
+	    return ResponseEntity.ok(result);
 	}
+
 	@PostMapping("/evaluation/remove")
 	public String removeEvaluation(@RequestParam String eval_id, @RequestParam String rm_id) throws Exception {
 	    evaluationService.remove(eval_id); // DB 삭제
@@ -395,52 +409,61 @@ public class RodeMapController2 {
 		}
 		return attachList;
 	}
-	@GetMapping("/evaluation/modify")
-	public ModelAndView modifyEvaluation(@RequestParam String eval_id, String rm_id) throws Exception {
-	    ModelAndView mnv = new ModelAndView("/roadmap/evalmodify");
+	 @GetMapping("/modify")
+	    public ResponseEntity<Map<String, Object>> getEvaluationForModify(
+	            @RequestParam String eval_id,
+	            @RequestParam String rm_id) throws Exception {
 
-	    EvaluationVO evaluation = evaluationService.selectEvaluationByEval_id(eval_id);
-	    if (evaluation == null) {
-	        throw new IllegalArgumentException("해당 평가를 찾을 수 없습니다. eval_id=" + eval_id);
+	        EvaluationVO evaluation = evaluationService.selectEvaluationByEval_id(eval_id);
+	        if (evaluation == null) {
+	            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+	                    .body(Map.of("message", "해당 평가를 찾을 수 없습니다."));
+	        }
+
+	        RoadMapVO roadMap = roadMapService.detail(rm_id);
+	        String project_id = roadMap.getProject_id();
+	        List<ProjectListVO> projectList = projectService.selectProjectByProjectId(project_id);
+	        List<MemberVO> studentList = projectService.selectTeamMemberList();
+	        List<String> teammembers = projectService.selectTeamMembers(project_id);
+	        String teammembersStr = String.join(", ", teammembers);
+
+	        Map<String, Object> result = new HashMap<>();
+	        result.put("eval_id", eval_id);
+	        result.put("evaluation", evaluation);
+	        result.put("rm_id", rm_id);
+	        result.put("teammembers", teammembersStr);
+	        result.put("studentList", studentList);
+	        result.put("projectList", projectList);
+
+	        return ResponseEntity.ok(result);
 	    }
 
-	    RoadMapVO roadMap = roadMapService.detail(rm_id);
-	    String project_id = roadMap.getProject_id();
-	    List<ProjectListVO> projectList = projectService.selectProjectByProjectId(project_id);
-	    List<MemberVO> studentList = projectService.selectTeamMemberList();
-	    List<String> teammembers = projectService.selectTeamMembers(project_id);
-	    String teammembersStr = String.join(", ", teammembers);
+	    // 평가 수정 처리
+	    @PostMapping("/modify")
+	    public ResponseEntity<Map<String, Object>> modifyEvaluation(
+	            @RequestBody EvaluationRegistCommand regCommand,
+	            @RequestParam String eval_id,
+	            @RequestParam String rm_id,
+	            @RequestParam String memId,
+	            HttpSession session) throws Exception {
 
-	    mnv.addObject("eval_id", eval_id); // ← 반드시 요청 파라미터 eval_id 사용
-	    mnv.addObject("evaluation", evaluation);
-	    mnv.addObject("rm_id", rm_id);
-	    mnv.addObject("teammembers", teammembersStr);
-	    mnv.addObject("studentList", studentList);
-	    mnv.addObject("projectList", projectList);
+	        EvaluationVO evaluation = regCommand.toEvaluationVO(eval_id, rm_id);
+	        evaluation.setEval_content(HTMLInputFilter.htmlSpecialChars(evaluation.getEval_content()));
 
-	    return mnv;
-	}
-	@PostMapping(value = "/evaluation/modify", produces = "text/plain;charset=utf-8")
-	public ModelAndView modifyEvaluation(EvaluationRegistCommand regCommand, 
-	                                     @RequestParam String eval_id,
-	                                     @RequestParam String rm_id, 
-	                                     HttpSession session, 
-	                                     ModelAndView mnv) throws Exception {
-	    String url="/roadmap/evaluationmodify_success";
-	    EvaluationVO evaluation = regCommand.toEvaluationVO(eval_id, rm_id);
-	    evaluation.setEval_content(HTMLInputFilter.htmlSpecialChars(evaluation.getEval_content()));
+	        MemberVO loginUser = memberService.getMemberById(memId);
+	        if (loginUser != null) {
+	            evaluation.setProfes_id(memId);
+	        }
 
-	    MemberVO loginUser = (MemberVO) session.getAttribute("loginUser");
-	    if(loginUser != null){
-	        evaluation.setProfes_id(loginUser.getMem_id());
+	        evaluationService.modify(evaluation);
+	        roadMapService.updateEvalStatus(rm_id);
+
+	        return ResponseEntity.ok(Map.of(
+	                "success", true,
+	                "message", "평가가 수정되었습니다."
+	        ));
 	    }
-
-	    evaluationService.modify(evaluation);
-	    roadMapService.updateEvalStatus(rm_id);
-	    mnv.setViewName(url);
-	    return mnv;
-	}
-	@GetMapping("/getFile")
+@GetMapping("/getFile")
 	@ResponseBody
 	public ResponseEntity<Resource> getFile(int ano) throws Exception {
 						
@@ -451,6 +474,7 @@ public class RodeMapController2 {
 	    Resource resource = new UrlResource(Paths.get(filePath).toUri());
 	    
 	    return ResponseEntity.ok()
+	    		.contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename=\"" + 
 				UriUtils.encode(attach.getFileName().split("\\$\\$")[1], "UTF-8") + "\"")
                 .body(resource);		

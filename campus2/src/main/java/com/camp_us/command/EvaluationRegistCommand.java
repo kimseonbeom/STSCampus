@@ -6,7 +6,7 @@ public class EvaluationRegistCommand {
 	private String eval_id;
 	private String profes_id;
 	private String eval_content;
-	private int Eval_score;
+	private int eval_score;
 	private String rm_id;
 	public String getEval_id() {
 		return eval_id;
@@ -27,10 +27,11 @@ public class EvaluationRegistCommand {
 		this.eval_content = eval_content;
 	}
 	public int getEval_score() {
-		return Eval_score;
+		return eval_score;
 	}
+
 	public void setEval_score(int eval_score) {
-		Eval_score = eval_score;
+		this.eval_score = eval_score;
 	}
 	public String getRm_id() {
 		return rm_id;
@@ -43,7 +44,7 @@ public class EvaluationRegistCommand {
 		System.out.println(">>> rm_id from command: " + rm_id);
 		evaluation.setEval_id(eval_id);
 		evaluation.setEval_content(eval_content);
-		evaluation.setEval_score(Eval_score);
+		evaluation.setEval_score(eval_score);
 		evaluation.setProfes_id(profes_id);
 		evaluation.setRm_id(rm_id);
 		return evaluation;
